@@ -1,0 +1,741 @@
+# import asyncio
+# import logging
+# import sys
+# import os
+# import warnings
+# import time
+# import schedule
+
+# # --- ADK and Google GenAI Imports ---
+# try:
+#     from google.adk.sessions import InMemorySessionService
+    
+#     from google.adk.runners import Runner
+#     from google.genai import types as GoogleGenAiTypes
+# except ModuleNotFoundError as e:
+#     dep_name = str(e).split("'")[-2]
+#     print(
+#         f"ERROR: Failed to import '{dep_name}' from the Google ADK or google-generativeai library. "
+#         "Please ensure the Google ADK and its dependencies (like google-generativeai) "
+#         "are correctly installed in your Python environment. "
+#         "You might need to run: pip install google-adk google-generativeai schedule",
+#         file=sys.stderr
+#     )
+#     sys.exit(1)
+# except ImportError as e:
+#     print(f"ERROR: An unexpected error occurred while importing ADK/GenAI libraries: {e}", file=sys.stderr)
+#     sys.exit(1)
+
+# # --- Orbital Agent Import ---
+# try:
+#     from orbital.agent import soc_manager_agent as main_orbital_agent
+#     # from orbital.shared_libraries import constants # If needed for Runner config
+# except ModuleNotFoundError as e:
+#     print(
+#         "ERROR: Failed to import 'soc_manager_agent' from 'orbital.agent'. "
+#         "Please ensure that:"
+#         "\n1. The file 'orbital/orbital/agent.py' exists and defines 'soc_manager_agent'."
+#         "\n2. The 'orbital/orbital/__init__.py' file exists, making 'orbital' a package."
+#         "\n3. You are running this script from its location within the main 'orbital' project directory, "
+#         f"or your PYTHONPATH is set up correctly.{e}",
+#         file=sys.stderr
+#     )
+#     sys.exit(1)
+# except ImportError as e:
+#     print(f"ERROR: An error occurred while importing the main agent: {e}", file=sys.stderr)
+#     sys.exit(1)
+
+# # --- Logging and Warnings Configuration ---
+# warnings.filterwarnings("ignore")
+# # Set global logging to ERROR, but our script_logger to INFO or DEBUG
+# logging.basicConfig(level=logging.ERROR)
+# script_logger = logging.getLogger("OrbitalSOCScheduler")
+# script_logger.setLevel(logging.DEBUG) 
+
+# # --- Constants for Session Management ---
+# APP_NAME = "orbital_security_analysis_app"
+# USER_ID = os.getenv("ORBITAL_USER_ID", "automated_system_user") 
+# # Use a base and append a timestamp for a potentially unique session per run
+# SESSION_ID_BASE = os.getenv("ORBITAL_SESSION_ID_BASE", "scheduled_run_")
+
+# async def run_agent_with_predefined_input(run_session_id: str):
+#     """
+#     Sets up ADK session, runner, and executes the main_orbital_agent
+#     with a predefined input, iterating through all events to find the final report.
+#     Takes a session_id for the current run.
+#     """
+#     predefined_task_input = "Execute security events analysis"
+#     script_logger.info(f"==================================================")
+#     script_logger.info(f"Starting scheduled SOC Manager task at {time.ctime()}") # More precise timestamp
+#     script_logger.info(f"==================================================")
+#     script_logger.info(f"Scheduler job triggered. Running agent task with Session ID: {run_session_id}")
+#     script_logger.info(f"Starting Orbital agent task (Session: {run_session_id}): '{predefined_task_input}'")
+
+#     try:
+#         session_service = InMemorySessionService()
+#         # script_logger.debug("InMemorySessionService initialized.") # Less verbose for scheduled runs
+
+#         session_object = session_service.create_session(
+#             app_name=APP_NAME,
+#             user_id=USER_ID,
+#             session_id=run_session_id
+#         )
+#         # script_logger.debug(f"Session created/ensured in service: App='{APP_NAME}', User='{USER_ID}', Session='{run_session_id}' (Object: {type(session_object).__name__})")
+#     except Exception as e:
+#         script_logger.error(f"Failed to initialize or create session (ID: {run_session_id}): {e}", exc_info=True)
+#         # Return a structured error indicating the failure
+#         return f"ERROR: Failed to set up ADK session service: {e}"
+
+#     try:
+#         # Configure Runner with your agent, app name, and session service.
+#         # If your agent's model (constants.MODEL) needs specific configuration
+#         # (e.g. API keys for LiteLLM models), pass default_llm here.
+#         # Example for LiteLLM:
+#         # from google.adk.models.lite_llm import LiteLlm
+#         # from orbital.shared_libraries import constants # Need to import constants
+#         # llm_config = LiteLlm(model_name=constants.MODEL) # Assumes constants.MODEL is like "openai/gpt-3.5-turbo"
+#         # runner = Runner(agent=main_orbital_agent, app_name=APP_NAME, session_service=session_service, default_llm=llm_config)
+#         runner = Runner(
+#             agent=main_orbital_agent,
+#             app_name=APP_NAME,
+#             session_service=session_service
+#         )
+#         agent_name = main_orbital_agent.name if hasattr(main_orbital_agent, 'name') else 'soc_manager'
+#         # script_logger.debug(f"ADK Runner created for agent '{agent_name}'.") # Less verbose
+#     except Exception as e:
+#         script_logger.error(f"Failed to create ADK Runner (Session: {run_session_id}): {e}", exc_info=True)
+#          # Return a structured error indicating the failure
+#         return f"ERROR: Failed to set up ADK Runner: {e}"
+
+
+#     # script_logger.debug(f"Preparing to send query to agent (Session: {run_session_id}): '{predefined_task_input}'")
+#     try:
+#         content = GoogleGenAiTypes.Content(role='user', parts=[GoogleGenAiTypes.Part(text=predefined_task_input)])
+#     except Exception as e:
+#         script_logger.error(f"Failed to create GoogleGenAiTypes.Content (Session: {run_session_id}): {e}", exc_info=True)
+#          # Return a structured error indicating the failure
+#         return f"ERROR: Failed to prepare agent input: {e}"
+
+#     final_response_text = "Agent task initiated, but no textual response was generated." # More accurate default
+#     last_model_content_event = None # To track the last event with model content
+
+#     script_logger.info(f"Executing runner.run_async for User='{USER_ID}', Session='{run_session_id}'...")
+#     try:
+#         event_count = 0
+#         # Iterate through ALL events yielded by run_async
+#         async for event in runner.run_async(user_id=USER_ID, session_id=run_session_id, new_message=content):
+#             event_count += 1
+#             # Log all events at DEBUG level for troubleshooting
+#             script_logger.debug(f"  [Event {event_count} Session: {run_session_id}] Author: {event.author}, Type: {type(event).__name__}, Final: {event.is_final_response()}, Content: {repr(event.content)}, Actions: {repr(event.actions)}, Error: {repr(event.error_message)}")
+
+#             # Keep track of the last event from the 'model' that has content
+#             # if event.author == 'model' and event.content and event.content.parts:
+#             #      # Assuming the primary response is in the first part
+#             #      # Check if the part has text content before storing
+#             #      if event.content.parts[0].text:
+#             #          last_model_content_event = event
+#             #          script_logger.debug(f"    --> Captured latest model content from Event {event_count}")
+#                         # Keep track of the last event that has content from the LLM (role='model')
+#             if event.content and event.content.role == 'model' and event.content.parts: # Check event.content.role
+#                  # Ensure there's at least one part and it has text
+#                  if event.content.parts[0] and event.content.parts[0].text:
+#                      last_model_content_event = event
+#                      script_logger.debug(f"    --> Captured latest model content from Event {event_count} (Author: {event.author}, Role: {event.content.role})")
+#             # We do NOT break on is_final_response() anymore to see the whole trace
+
+#         script_logger.info(f"Finished processing {event_count} events for Session: {run_session_id}")
+
+#         # After the loop finishes, check the last_model_content_event
+#         if last_model_content_event and last_model_content_event.content and last_model_content_event.content.parts and last_model_content_event.content.parts[0].text:
+#              final_response_text = last_model_content_event.content.parts[0].text
+#              script_logger.info(f"Found final textual response from the last model content event.")
+#         elif last_model_content_event and last_model_content_event.actions and last_model_content_event.actions.escalate:
+#              # Handle the case where the *last* model event might be an escalation
+#              final_response_text = f"Agent ended with escalation: {last_model_content_event.error_message or 'No specific message.'}"
+#              script_logger.warning(f"(Session: {run_session_id}) {final_response_text}")
+#         # Add more checks here if your agent might end in other specific states (e.g., tool outputs without a final text summary)
+#         elif event_count > 0 and final_response_text == "Agent task initiated, but no textual response was generated.":
+#              # If events occurred but no model content was captured as the final response
+#              final_response_text = "Agent processed events but did not produce a standard textual final response."
+#              script_logger.warning(f"(Session: {run_session_id}) {final_response_text}")
+
+
+#     except Exception as e:
+#         script_logger.error(f"An error occurred during agent execution (Session: {run_session_id}): {e}", exc_info=True)
+#         final_response_text = f"Error during agent execution: {e}"
+
+#     script_logger.info(f"==================================================")
+#     script_logger.info(f"<<< Agent Final Response (Session: {run_session_id})")
+#     script_logger.info(f"==================================================")
+
+#     # Print the final response for potential parsing by other scripts/systems
+#     print(f"AGENT_RESPONSE_START")
+#     print(f"Session: {run_session_id}")
+#     print(final_response_text)
+#     print(f"AGENT_RESPONSE_END")
+
+#     # Return the final response text if needed by the caller (optional)
+#     return final_response_text
+
+
+# def run_soc_manager_task_job():
+#     """
+#     Synchronous wrapper for the async agent task, suitable for the scheduler.
+#     """
+#     # Create a unique session ID for each run using a timestamp
+#     current_time_str = time.strftime("%Y%m%d_%H%M%S")
+#     run_specific_session_id = f"{SESSION_ID_BASE}{current_time_str}"
+
+#     # The async agent task is run within asyncio.run()
+#     try:
+#         # We don't necessarily need the return value here for the scheduler loop,
+#         # as the result is printed and logged within the async function.
+#         asyncio.run(run_agent_with_predefined_input(run_specific_session_id))
+#         # script_logger.info(f"Agent task for session {run_specific_session_id} completed.") # Logging is done within the async func
+#     except Exception as e:
+#         # This catches exceptions from asyncio.run itself or unhandled errors *above* the async func's try/except
+#         script_logger.error(f"Unhandled error running agent task for session {run_specific_session_id}: {e}", exc_info=True)
+
+
+# if __name__ == "__main__":
+#     script_logger.info("Orbital SOC Scheduler starting up.")
+
+#     try:
+#         SCHEDULE_INTERVAL_MINUTES = int(os.getenv("SCHEDULE_INTERVAL_MINUTES", "1"))
+#         if SCHEDULE_INTERVAL_MINUTES <= 0:
+#              raise ValueError("Interval must be positive.")
+#     except ValueError:
+#         script_logger.warning("Invalid or non-positive SCHEDULE_INTERVAL_MINUTES environment variable. Defaulting to 1 minute.")
+#         SCHEDULE_INTERVAL_MINUTES = 1
+
+#     # Use the synchronous wrapper function for the scheduler
+#     schedule.every(SCHEDULE_INTERVAL_MINUTES).minutes.do(run_soc_manager_task_job)
+#     script_logger.info(f"SOC Manager task scheduled to run every {SCHEDULE_INTERVAL_MINUTES} minute(s).")
+
+#     if os.getenv("RUN_ON_STARTUP", "true").lower() == "true":
+#          script_logger.info("Performing an initial run on startup...")
+#          run_soc_manager_task_job() # Call the synchronous wrapper
+
+#     script_logger.info("Scheduler running. Press Ctrl+C to exit.")
+#     try:
+#         # The scheduler loop
+#         while True:
+#             schedule.run_pending()
+#             time.sleep(1) # Check every second
+#     except KeyboardInterrupt:
+#         script_logger.info("Scheduler stopped by user.")
+#     except Exception as e:
+#         script_logger.error(f"Scheduler encountered an unhandled exception: {e}", exc_info=True)
+#     finally:
+#         script_logger.info("Orbital SOC Scheduler shutting down.")
+import asyncio
+import logging
+import sys
+import os
+import warnings
+import time
+import schedule
+
+# --- ADK and Google GenAI Imports ---
+try:
+    from google.adk.sessions import InMemorySessionService, Session
+    from google.adk.memory import InMemoryMemoryService
+    from google.adk.runners import Runner
+    # from google.adk.tools import load_memory # Keep if your agent uses it
+    from google.genai import types as GoogleGenAiTypes
+except ModuleNotFoundError as e:
+    dep_name = str(e).split("'")[-2]
+    print(
+        f"ERROR: Failed to import '{dep_name}' from the Google ADK or google-generativeai library. "
+        "Please ensure the Google ADK and its dependencies (like google-generativeai) "
+        "are correctly installed in your Python environment. "
+        "You might need to run: pip install google-adk google-generativeai schedule",
+        file=sys.stderr
+    )
+    sys.exit(1)
+except ImportError as e:
+    print(f"ERROR: An unexpected error occurred while importing ADK/GenAI libraries: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# --- Orbital Agent Import ---
+try:
+    from orbital.agent import soc_manager_agent as main_orbital_agent
+    # Ensure your agent is configured to use memory tools if desired
+    # from google.adk.tools import load_memory
+    # Example agent modification (ensure this is done in your agent's definition):
+    # soc_manager_agent = LlmAgent(
+    #     ...
+    #     tools=[load_memory, ...],
+    #     instruction="... use the 'load_memory' tool to check past data..."
+    # )
+except ModuleNotFoundError as e:
+    print(
+        "ERROR: Failed to import 'soc_manager_agent' from 'orbital.agent'. "
+        # ... (rest of your error message)
+        f"or your PYTHONPATH is set up correctly.{e}",
+        file=sys.stderr
+    )
+    sys.exit(1)
+except ImportError as e:
+    print(f"ERROR: An error occurred while importing the main agent: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# --- Logging and Warnings Configuration ---
+warnings.filterwarnings("ignore")
+logging.basicConfig(level=logging.ERROR)
+script_logger = logging.getLogger("OrbitalSOCScheduler")
+script_logger.setLevel(logging.DEBUG)
+
+# --- Constants for Session Management ---
+APP_NAME = "orbital_security_analysis_app"
+USER_ID = os.getenv("ORBITAL_USER_ID", "automated_system_user")
+SESSION_ID_BASE = os.getenv("ORBITAL_SESSION_ID_BASE", "scheduled_run_")
+
+memory_service = InMemoryMemoryService()
+script_logger.info("Initialized InMemoryMemoryService for the application lifetime.")
+
+
+async def run_agent_with_predefined_input(run_session_id: str):
+    predefined_task_input = "Execute security events analysis"
+    script_logger.info(f"==================================================")
+    script_logger.info(f"Starting scheduled SOC Manager task at {time.ctime()}")
+    script_logger.info(f"==================================================")
+    script_logger.info(f"Scheduler job triggered. Running agent task with Session ID: {run_session_id}")
+    script_logger.info(f"Starting Orbital agent task (Session: {run_session_id}): '{predefined_task_input}'")
+
+    # ### ADDED: Helper for formatting dictionaries/long strings in logs ###
+    def _format_log_value(value, max_len=70):
+        s = str(value)
+        if len(s) > max_len:
+            return s[:max_len-3] + "..."
+        return s
+
+    try:
+        session_service = InMemorySessionService()
+        script_logger.debug("InMemorySessionService initialized.")
+        session_object = session_service.create_session(
+            app_name=APP_NAME,
+            user_id=USER_ID,
+            session_id=run_session_id
+        )
+        script_logger.debug(f"Session object created/retrieved (sync) in service: App='{APP_NAME}', User='{USER_ID}', Session='{run_session_id}' (Object type: {type(session_object).__name__})")
+        if not isinstance(session_object, Session):
+            script_logger.error(f"create_session did not return a Session object, got {type(session_object)}.")
+            return f"ERROR: Failed to obtain a valid Session object from create_session."
+
+    except Exception as e:
+        script_logger.error(f"Failed to initialize or create session (ID: {run_session_id}): {e}", exc_info=True)
+        return f"ERROR: Failed to set up ADK session service: {e}"
+
+    try:
+        runner = Runner(
+            agent=main_orbital_agent,
+            app_name=APP_NAME,
+            session_service=session_service,
+            memory_service=memory_service
+        )
+        agent_name = main_orbital_agent.name if hasattr(main_orbital_agent, 'name') else 'soc_manager_agent'
+        script_logger.debug(f"ADK Runner created for agent '{agent_name}' with memory service.")
+    except Exception as e:
+        script_logger.error(f"Failed to create ADK Runner (Session: {run_session_id}): {e}", exc_info=True)
+        return f"ERROR: Failed to set up ADK Runner: {e}"
+
+    try:
+        content = GoogleGenAiTypes.Content(role='user', parts=[GoogleGenAiTypes.Part(text=predefined_task_input)])
+    except Exception as e:
+        script_logger.error(f"Failed to create GoogleGenAiTypes.Content (Session: {run_session_id}): {e}", exc_info=True)
+        return f"ERROR: Failed to prepare agent input: {e}"
+
+    final_response_text = "Agent task initiated, but no textual response was generated."
+    last_model_content_event = None
+
+    script_logger.info(f"Executing runner.run_async for User='{USER_ID}', Session='{run_session_id}'...")
+    try:
+        event_count = 0
+        async for event in runner.run_async(user_id=USER_ID, session_id=run_session_id, new_message=content):
+            event_count += 1
+            
+            # ### MODIFIED: Enhanced Event Logging ###
+            log_lines = [
+                f"  [Event {event_count} Session: {run_session_id}]",
+                f"    Author: {event.author}",
+                f"    Type: {type(event).__name__}",
+                f"    Final: {event.is_final_response()}",
+            ]
+
+            if event.content:
+                log_lines.append(f"    Content Role: {event.content.role if event.content.role else 'N/A'}")
+                if event.content.parts:
+                    # Check if any part has text content worth logging explicitly
+                    has_text_in_parts = any(part.text for part in event.content.parts if hasattr(part, 'text') and part.text)
+                    if has_text_in_parts:
+                        # log_lines.append("    Content Text Parts:") # Optional: Header for text parts
+                        for i, part in enumerate(event.content.parts):
+                            if hasattr(part, 'text') and part.text:
+                                log_lines.append(f"      Part {i} Text: '{_format_log_value(part.text, 60)}'")
+                    # Other part types (like function_call/response) are often better summarized
+                    # by event.get_function_calls() / event.get_function_responses() below.
+            
+            # Log Function Calls requested by the model
+            fcs = event.get_function_calls() if hasattr(event, 'get_function_calls') else None
+            if fcs:
+                log_lines.append("    Requested FunctionCalls (by model):")
+                for fc in fcs:
+                    log_lines.append(f"      - Name: {fc.name}, Args: {_format_log_value(fc.args)}, ID: {fc.id}")
+
+            # Log Function Responses provided to the model
+            frs = event.get_function_responses() if hasattr(event, 'get_function_responses') else None
+            if frs:
+                log_lines.append("    Provided FunctionResponses (to model):")
+                for fr in frs:
+                    log_lines.append(f"      - Name: {fr.name}, Response: {_format_log_value(fr.response)}, ID: {fr.id}")
+            
+            # Log Event Actions
+            if event.actions:
+                action_details = []
+                if event.actions.skip_summarization is not None: action_details.append(f"SkipSummarization: {event.actions.skip_summarization}")
+                if event.actions.state_delta: action_details.append(f"StateDelta: {_format_log_value(event.actions.state_delta)}")
+                if event.actions.artifact_delta: action_details.append(f"ArtifactDelta: {_format_log_value(event.actions.artifact_delta)}")
+                if event.actions.transfer_to_agent: action_details.append(f"TransferToAgent: {event.actions.transfer_to_agent}")
+                if event.actions.escalate: action_details.append(f"Escalate: {event.actions.escalate}")
+                if event.actions.requested_auth_configs: action_details.append(f"RequestedAuthConfigs: {_format_log_value(event.actions.requested_auth_configs)}")
+
+                if action_details:
+                    log_lines.append("    Actions:")
+                    for detail in action_details:
+                        log_lines.append(f"      {detail}")
+
+            if event.error_message:
+                log_lines.append(f"    Error: {repr(event.error_message)}")
+
+            script_logger.debug("\n".join(log_lines))
+            # ### END Modified Event Logging ###
+
+            # Logic to capture the final textual response from the model
+            if event.content and event.content.role == 'model' and event.content.parts:
+                 if hasattr(event.content.parts[0], 'text') and event.content.parts[0].text: # Check if part has text
+                     last_model_content_event = event
+                     # script_logger.debug(f"    --> Captured latest model content from Event {event_count} (Author: {event.author}, Role: {event.content.role})") # Already part of detailed log
+
+        script_logger.info(f"Finished processing {event_count} events for Session: {run_session_id}")
+
+        if last_model_content_event and last_model_content_event.content and last_model_content_event.content.parts[0].text:
+             final_response_text = last_model_content_event.content.parts[0].text
+             script_logger.info(f"Found final textual response from the last model content event.")
+        elif last_model_content_event and last_model_content_event.actions and last_model_content_event.actions.escalate:
+             final_response_text = f"Agent ended with escalation: {last_model_content_event.error_message or 'No specific message.'}"
+             script_logger.warning(f"(Session: {run_session_id}) {final_response_text}")
+        elif event_count > 0 and final_response_text == "Agent task initiated, but no textual response was generated.":
+             final_response_text = "Agent processed events but did not produce a standard textual final response."
+             script_logger.warning(f"(Session: {run_session_id}) {final_response_text}")
+
+    except Exception as e:
+        script_logger.error(f"An error occurred during agent execution (Session: {run_session_id}): {e}", exc_info=True)
+        final_response_text = f"Error during agent execution: {e}"
+    finally:
+        try:
+            script_logger.info(f"Attempting to add session '{run_session_id}' to memory.")
+            completed_session = session_service.get_session(
+                app_name=APP_NAME,
+                user_id=USER_ID,
+                session_id=run_session_id
+            )
+            if completed_session:
+                memory_service.add_session_to_memory(completed_session)
+                script_logger.info(f"Session '{run_session_id}' successfully added to memory (sync).")
+            else:
+                script_logger.warning(f"Could not retrieve session '{run_session_id}' to add to memory (get_session returned None).")
+        except Exception as e:
+            script_logger.error(f"Failed to add session '{run_session_id}' to memory: {e}", exc_info=True)
+
+    script_logger.info(f"==================================================")
+    script_logger.info(f"<<< Agent Final Response (Session: {run_session_id})")
+    script_logger.info(f"==================================================")
+
+    print(f"AGENT_RESPONSE_START")
+    print(f"Session: {run_session_id}")
+    print(final_response_text)
+    print(f"AGENT_RESPONSE_END")
+
+    return final_response_text
+
+
+def run_soc_manager_task_job():
+    current_time_str = time.strftime("%Y%m%d_%H%M%S")
+    run_specific_session_id = f"{SESSION_ID_BASE}{current_time_str}"
+    try:
+        asyncio.run(run_agent_with_predefined_input(run_specific_session_id))
+    except Exception as e:
+        script_logger.error(f"Unhandled error running agent task for session {run_specific_session_id}: {e}", exc_info=True)
+
+
+if __name__ == "__main__":
+    script_logger.info("Orbital SOC Scheduler starting up.")
+    try:
+        SCHEDULE_INTERVAL_MINUTES = int(os.getenv("SCHEDULE_INTERVAL_MINUTES", "1"))
+        if SCHEDULE_INTERVAL_MINUTES <= 0:
+             raise ValueError("Interval must be positive.")
+    except ValueError:
+        script_logger.warning("Invalid or non-positive SCHEDULE_INTERVAL_MINUTES environment variable. Defaulting to 1 minute.")
+        SCHEDULE_INTERVAL_MINUTES = 1
+
+    schedule.every(SCHEDULE_INTERVAL_MINUTES).minutes.do(run_soc_manager_task_job)
+    script_logger.info(f"SOC Manager task scheduled to run every {SCHEDULE_INTERVAL_MINUTES} minute(s).")
+
+    if os.getenv("RUN_ON_STARTUP", "true").lower() == "true":
+         script_logger.info("Performing an initial run on startup...")
+         run_soc_manager_task_job()
+
+    script_logger.info("Scheduler running. Press Ctrl+C to exit.")
+    try:
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        script_logger.info("Scheduler stopped by user.")
+    except Exception as e:
+        script_logger.error(f"Scheduler encountered an unhandled exception: {e}", exc_info=True)
+    finally:
+        script_logger.info("Orbital SOC Scheduler shutting down.")
+
+# import asyncio
+# import logging
+# import sys
+# import os
+# import warnings
+# import time
+# import schedule
+# import uuid
+
+# # --- ADK and Google GenAI Imports ---
+# try:
+#     from google.adk.sessions import InMemorySessionService, DatabaseSessionService
+#     from google.adk.memory import InMemoryMemoryService # ### ADDED: For memory
+#     from google.adk.runners import Runner
+#     from google.adk.tools import load_memory # ### ADDED: Tool for agent to query memory
+#     from google.genai import types as GoogleGenAiTypes
+# except ModuleNotFoundError as e:
+#     dep_name = str(e).split("'")[-2]
+#     print(
+#         f"ERROR: Failed to import '{dep_name}' from the Google ADK or google-generativeai library. "
+#         "Please ensure the Google ADK and its dependencies (like google-generativeai) "
+#         "are correctly installed in your Python environment. "
+#         "You might need to run: pip install google-adk google-generativeai schedule", # Consider adding google-cloud-aiplatform if using Vertex
+#         file=sys.stderr
+#     )
+#     sys.exit(1)
+# except ImportError as e:
+#     print(f"ERROR: An unexpected error occurred while importing ADK/GenAI libraries: {e}", file=sys.stderr)
+#     sys.exit(1)
+
+# # --- Orbital Agent Import ---
+# try:
+#     from orbital.agent import soc_manager_agent as main_orbital_agent
+# except ModuleNotFoundError as e:
+#     print(
+#         "ERROR: Failed to import 'soc_manager_agent' from 'orbital.agent'. "
+#         "Please ensure that:"
+#         "\n1. The file 'orbital/orbital/agent.py' exists and defines 'soc_manager_agent'."
+#         "\n2. The 'orbital/orbital/__init__.py' file exists, making 'orbital' a package."
+#         "\n3. You are running this script from its location within the main 'orbital' project directory, "
+#         f"or your PYTHONPATH is set up correctly.{e}",
+#         file=sys.stderr
+#     )
+#     sys.exit(1)
+# except ImportError as e:
+#     print(f"ERROR: An error occurred while importing the main agent: {e}", file=sys.stderr)
+#     sys.exit(1)
+
+# # --- Logging and Warnings Configuration ---
+# warnings.filterwarnings("ignore")
+# logging.basicConfig(level=logging.ERROR)
+# script_logger = logging.getLogger("OrbitalSOCScheduler")
+# script_logger.setLevel(logging.DEBUG)
+
+# # --- Constants for Session Management ---
+# APP_NAME = "orbital_security_analysis_app"
+# USER_ID = os.getenv("ORBITAL_USER_ID", "automated_system_user")
+# SESSION_ID_BASE = os.getenv("ORBITAL_SESSION_ID_BASE", "scheduled_run_")
+
+# # --- Database URL Configuration ---
+# try:
+#     db_url = os.getenv("ADK_DATABASE_URL", "sqlite:///./my_agent_data.db")
+#     if not db_url:
+#         raise ValueError("ADK_DATABASE_URL environment variable is not set.")
+# except ValueError as e:
+#     script_logger.error(f"Failed to retrieve ADK_DATABASE_URL: {e}", exc_info=True)
+#     print(f"ERROR: {e}", file=sys.stderr)
+#     sys.exit(1)
+    
+
+# # ### ADDED: Global InMemoryMemoryService ###
+
+# memory_service = InMemoryMemoryService()
+# script_logger.info("Initialized InMemoryMemoryService for the application lifetime.")
+
+# # ### ADDED: Global InMemorySessionService ###
+# #session_service = InMemorySessionService()
+# session_service = DatabaseSessionService(db_url=db_url)
+# script_logger.info("Initialized InMemorySessionService for the application lifetime.")
+
+# async def run_agent_with_predefined_input(run_session_id: str):
+#     """
+#     Sets up ADK session, runner, and executes the main_orbital_agent
+#     with a predefined input, iterating through all events.
+#     Adds the completed session to memory.
+#     Takes a session_id for the current run.
+#     """
+#     predefined_task_input = "Execute security events analysis"
+#     script_logger.info(f"==================================================")
+#     script_logger.info(f"Starting scheduled SOC Manager task at {time.ctime()}")
+#     script_logger.info(f"==================================================")
+#     script_logger.info(f"Scheduler job triggered. Running agent task with Session ID: {run_session_id}")
+#     script_logger.info(f"Starting Orbital agent task (Session: {run_session_id}): '{predefined_task_input}'")
+
+#     try:
+#         # Use the global session_service instead of creating a new one
+#         # Ensure this async call is awaited
+#         session_object = await session_service.create_session(
+#             app_name=APP_NAME,
+#             user_id=USER_ID,
+#             session_id=run_session_id
+#         )
+#         script_logger.debug(f"Session '{run_session_id}' created successfully.")
+#     except Exception as e:
+#         script_logger.error(f"Failed to initialize or create session (ID: {run_session_id}): {e}", exc_info=True)
+#         return f"ERROR: Failed to set up ADK session service: {e}"
+
+#     try:
+#         runner = Runner(
+#             agent=main_orbital_agent,
+#             app_name=APP_NAME,
+#             session_service=session_service,  # Use the global session_service
+#             memory_service=memory_service
+#         )
+#         agent_name = main_orbital_agent.name if hasattr(main_orbital_agent, 'name') else 'soc_manager_agent'
+#         script_logger.debug(f"ADK Runner created for agent '{agent_name}' with memory service.")
+#     except Exception as e:
+#         script_logger.error(f"Failed to create ADK Runner (Session: {run_session_id}): {e}", exc_info=True)
+#         return f"ERROR: Failed to set up ADK Runner: {e}"
+
+#     try:
+#         content = GoogleGenAiTypes.Content(role='user', parts=[GoogleGenAiTypes.Part(text=predefined_task_input)])
+#     except Exception as e:
+#         script_logger.error(f"Failed to create GoogleGenAiTypes.Content (Session: {run_session_id}): {e}", exc_info=True)
+#         return f"ERROR: Failed to prepare agent input: {e}"
+
+#     final_response_text = "Agent task initiated, but no textual response was generated."
+#     last_model_content_event = None
+
+#     script_logger.info(f"Executing runner.run_async for User='{USER_ID}', Session='{run_session_id}'...")
+#     try:
+#         event_count = 0
+#         async for event in runner.run_async(user_id=USER_ID, session_id=run_session_id, new_message=content):
+#             event_count += 1
+#             event_details = f"Author: {event.author}, Type: {type(event).__name__}, Final: {event.is_final_response()}"
+#             if event.content:
+#                  event_details += f", Content Role: {event.content.role if event.content.role else 'N/A'}, Content Parts: {repr(event.content.parts)}"
+#             if event.actions:
+#                  event_details += f", Actions: {repr(event.actions)}"
+#             if hasattr(event, 'get_function_calls') and event.get_function_calls():
+#                 event_details += f", FunctionCalls: {repr(event.get_function_calls())}"
+#             if hasattr(event, 'get_function_responses') and event.get_function_responses():
+#                 event_details += f", FunctionResponses: {repr(event.get_function_responses())}"
+#             if event.error_message:
+#                  event_details += f", Error: {repr(event.error_message)}"
+
+#             script_logger.debug(f"  [Event {event_count} Session: {run_session_id}] {event_details}")
+
+
+#             if event.content and event.content.role == 'model' and event.content.parts:
+#                  if event.content.parts[0] and event.content.parts[0].text:
+#                      last_model_content_event = event
+#                      script_logger.debug(f"    --> Captured latest model content from Event {event_count} (Author: {event.author}, Role: {event.content.role})")
+
+#         script_logger.info(f"Finished processing {event_count} events for Session: {run_session_id}")
+
+#         if last_model_content_event and last_model_content_event.content and last_model_content_event.content.parts and last_model_content_event.content.parts[0].text:
+#              final_response_text = last_model_content_event.content.parts[0].text
+#              script_logger.info(f"Found final textual response from the last model content event.")
+#         elif last_model_content_event and last_model_content_event.actions and last_model_content_event.actions.escalate:
+#              final_response_text = f"Agent ended with escalation: {last_model_content_event.error_message or 'No specific message.'}"
+#              script_logger.warning(f"(Session: {run_session_id}) {final_response_text}")
+#         elif event_count > 0 and final_response_text == "Agent task initiated, but no textual response was generated.":
+#              final_response_text = "Agent processed events but did not produce a standard textual final response."
+#              script_logger.warning(f"(Session: {run_session_id}) {final_response_text}")
+
+#     except Exception as e:
+#         script_logger.error(f"An error occurred during agent execution (Session: {run_session_id}): {e}", exc_info=True)
+#         final_response_text = f"Error during agent execution: {e}"
+#     finally:
+#         try:
+#             script_logger.info(f"Attempting to add session '{run_session_id}' to memory.")
+#             completed_session = await session_service.get_session(
+#                 app_name=APP_NAME,
+#                 user_id=USER_ID,
+#                 session_id=run_session_id
+#             )
+#             if completed_session:
+#                 await memory_service.add_session_to_memory(completed_session)
+#                 script_logger.info(f"Session '{run_session_id}' successfully added to memory.")
+#             else:
+#                 script_logger.warning(f"Could not retrieve session '{run_session_id}' to add to memory (get_session returned None). This might happen if the session was never successfully created or if an error occurred early in run_async.")
+#         except Exception as e:
+#             script_logger.error(f"Failed to add session '{run_session_id}' to memory: {e}", exc_info=True)
+
+
+#     script_logger.info(f"==================================================")
+#     script_logger.info(f"<<< Agent Final Response (Session: {run_session_id})")
+#     script_logger.info(f"==================================================")
+
+#     print(f"AGENT_RESPONSE_START")
+#     print(f"Session: {run_session_id}")
+#     print(final_response_text)
+#     print(f"AGENT_RESPONSE_END")
+
+#     return final_response_text
+
+
+# def run_soc_manager_task_job():
+#     """
+#     Synchronous wrapper for the async agent task, suitable for the scheduler.
+#     """
+#     current_time_str = time.strftime("%Y%m%d_%H%M%S")
+#     unique_id = str(uuid.uuid4())[:8]
+#     run_specific_session_id = f"{SESSION_ID_BASE}{unique_id}_{current_time_str}"
+
+#     try:
+#         asyncio.run(run_agent_with_predefined_input(run_specific_session_id))
+#     except Exception as e:
+#         script_logger.error(f"Unhandled error running agent task for session {run_specific_session_id}: {e}", exc_info=True)
+
+
+# if __name__ == "__main__":
+#     script_logger.info("Orbital SOC Scheduler starting up.")
+
+#     try:
+#         SCHEDULE_INTERVAL_MINUTES = int(os.getenv("SCHEDULE_INTERVAL_MINUTES", "5"))
+#         if SCHEDULE_INTERVAL_MINUTES <= 0:
+#              raise ValueError("Interval must be positive.")
+#     except ValueError:
+#         script_logger.warning("Invalid or non-positive SCHEDULE_INTERVAL_MINUTES environment variable. Defaulting to 5 minute.")
+#         SCHEDULE_INTERVAL_MINUTES = 5
+
+#     schedule.every(SCHEDULE_INTERVAL_MINUTES).minutes.do(run_soc_manager_task_job)
+#     script_logger.info(f"SOC Manager task scheduled to run every {SCHEDULE_INTERVAL_MINUTES} minute(s).")
+
+#     if os.getenv("RUN_ON_STARTUP", "true").lower() == "true":
+#          script_logger.info("Performing an initial run on startup...")
+#          run_soc_manager_task_job()
+
+#     script_logger.info("Scheduler running. Press Ctrl+C to exit.")
+#     try:
+#         while True:
+#             schedule.run_pending()
+#             time.sleep(1)
+#     except KeyboardInterrupt:
+#         script_logger.info("Scheduler stopped by user.")
+#     except Exception as e:
+#         script_logger.error(f"Scheduler encountered an unhandled exception: {e}", exc_info=True)
+#     finally:
+#         script_logger.info("Orbital SOC Scheduler shutting down.")
