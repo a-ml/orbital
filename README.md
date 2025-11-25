@@ -2,8 +2,8 @@
 
 #### 1. Introduction & Vision
 
-**Orbital** is an AI-driven, autonomous Security Operations Center (SOC) built on the Google ADK framework. 
-Its vision is to address the core challenges of modern security operations: alert overload, analyst burnout, and the speed mismatch between automated attacks and manual human response. 
+**Orbital** is an AI-driven, autonomous Security Operations Center (SOC) built on the [Google ADK framework](https://google.github.io/adk-docs/).<br> 
+Its vision is to address the core challenges of modern security operations: alert overload, analyst burnout, and the speed mismatch between automated attacks and manual human response.<br>
 Orbital achieves this by autonomously managing the full lifecycle of a security alert, from initial detection and enrichment to deep-dive intelligence analysis, final judgment, and response recommendation, thereby freeing human analysts to focus on high-level threat hunting and complex incident response.
 
 #### 2. System Architecture
